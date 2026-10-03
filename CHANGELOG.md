@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 - 2026-10-04
+
+* **Precision study** on 5,887 public files (5,525 repositories), 248 findings hand-labelled (`docs/precision-study.md`, `study/`): `high` 119/120 correct, `medium` 92/98, `low` 9/20. Findings of v0.1.0 were wrong in 18 cases; 7 classes found.
+* False positives fixed: subscripts of dicts of DataFrames (`data['a'].fillna(0, inplace=True)`), `.asi8` (NumPy array) with `astype(copy=False)`, `dtype == 'object'` in a condition that already accepts the string dtype, `dfs[0].rename(inplace=True)` (positional index on a list), functions of other libraries called through an imported module (`scipy.signal.resample(axis=)`).
+* Vendored copies of pandas (a `pandas/` directory with `core/`, `_libs/` or `tests/`) are skipped: 36% of all findings in the corpus were in such copies.
+* Oracle: 4 new negative cases (168 in total, 0 disagreements on pandas 2.3.3 vs 3.0.0 and 3.0.6). 84 unit tests.
+
 ## 0.1.0 - 2026-10-03
 
 First release. Nineteen rules for the move to pandas 3.0, each run on real pandas 2.3.3 and on pandas 3.0.0 and 3.0.6 (`tests/oracle/`, 164 cases).

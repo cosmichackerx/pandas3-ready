@@ -198,3 +198,74 @@ def test_ignore_comment_with_other_rule_does_not_hide():
 def test_syntax_error_is_counted_not_fatal():
     r = scan_text("import pandas as pd\ndef (:\n")
     assert r.findings == [] and r.unparsed == 1
+
+
+# ---------------------------------------------------------------- precision-study fixes (v0.2.0)
+def test_dict_of_dataframes_inplace_is_not_a_chained_inplace():
+    src = "data = {'a': pd.read_csv('a.csv'), 'b': pd.read_csv('b.csv')}\ndata['a'].fillna(0, inplace=True)\ndata['b'].drop(columns=['x'], inplace=True)\n"
+    assert found(src) == []
+
+
+def test_dict_of_dataframes_write_is_not_chained_assignment():
+    src = "d = {}\nd['a'] = pd.read_csv('a.csv')\nd['a']['x'] = 1\nd['a'].loc[0, 'x'] = 2\n"
+    assert found(src) == []
+
+
+def test_real_dataframe_still_reported_next_to_a_dict():
+    src = "d = {}\ndf = pd.read_csv('a.csv')\ndf['a'].fillna(0, inplace=True)\n"
+    assert found(src) == [("chained-inplace", "high")]
+
+
+def test_name_assigned_dict_and_something_else_is_still_checked():
+    src = "df = {}\ndf = pd.read_csv('a.csv')\ndf['a'].fillna(0, inplace=True)\n"
+    assert found(src) == [("chained-inplace", "medium")]
+
+
+def test_asi8_is_a_numpy_array_so_astype_copy_is_not_reported():
+    assert found("t = pd.to_datetime(s)\nns = pd.Index(t).asi8.astype(np.int64, copy=False)\n") == []
+
+
+def test_object_check_next_to_string_check_is_not_reported():
+    src = "df = pd.read_csv('a.csv')\nfor c in df.columns:\n    if df[c].dtype == 'object' or df[c].dtype == 'string':\n        pass\n"
+    assert rules(src) == set()
+    src = "df = pd.read_csv('a.csv')\nx = df['a'].dtype != 'object' and not pd.api.types.is_string_dtype(df['a'])\n"
+    assert rules(src) == set()
+
+
+def test_object_check_alone_is_still_reported():
+    assert found("df = pd.read_csv('a.csv')\nx = df['a'].dtype == 'object'\n") == [("object-dtype-check", "high")]
+
+
+def test_vendored_pandas_tree_is_skipped(tmp_path):
+    from pandas3_ready.scan import scan
+    v = tmp_path / "libs" / "pandas" / "tests"
+    v.mkdir(parents=True)
+    (v / "test_x.py").write_text("import pandas as pd\npd.date_range('2024', periods=2, freq='H')\n")
+    (tmp_path / "libs" / "pandas" / "core").mkdir()
+    (tmp_path / "app.py").write_text("import pandas as pd\npd.date_range('2024', periods=2, freq='H')\n")
+    r = scan(str(tmp_path), min_conf="low")
+    assert [f.file for f in r.findings] == ["app.py"]
+
+
+def test_a_directory_named_pandas_without_pandas_internals_is_scanned(tmp_path):
+    from pandas3_ready.scan import scan
+    d = tmp_path / "pandas"
+    d.mkdir()
+    (d / "etl.py").write_text("import pandas as pd\npd.date_range('2024', periods=2, freq='H')\n")
+    assert [f.file for f in scan(str(tmp_path), min_conf="low").findings] == ["pandas/etl.py"]
+
+
+def test_function_of_another_library_named_like_a_pandas_method():
+    src = "import scipy.signal\nx = scipy.signal.resample(a, 10, axis=-1)\n"
+    assert found(src) == []
+    src2 = "import sklearn.utils as su\nx = su.resample(a, axis=0)\n"
+    assert found(src2) == []
+
+
+def test_resample_axis_on_a_frame_is_still_reported():
+    assert rules("df = pd.read_csv('a.csv')\nx = df.resample('D', axis=1).sum()\n") >= {"removed-keyword"}
+
+
+def test_positional_index_on_a_list_of_frames_is_not_a_column_selection():
+    assert found("dfs = load()\ndfs[0].rename(columns={'a': 'b'}, inplace=True)\n") == []
+    assert found("df = pd.read_csv('a.csv')\ndf[0].fillna(0, inplace=True)\n") == [("chained-inplace", "high")]

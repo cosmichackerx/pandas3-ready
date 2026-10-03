@@ -14,6 +14,18 @@ from .rules import CONFIDENCE, RULES
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", ".venv", "venv", "env", ".tox", ".nox", "__pycache__", "site-packages", "build", "dist", ".eggs",
              ".mypy_cache", ".ruff_cache", ".pytest_cache", ".ipynb_checkpoints"}
 MAX_BYTES = 2_000_000
+VENDORED_NAME = re.compile(r"pandas(?:-[\w.]+)?")
+
+
+def is_vendored_pandas(parent: str, name: str) -> bool:
+    """A copy of pandas itself (a directory called pandas with core/, _libs/ or tests/ in it): its own sources and tests use the old APIs on purpose.
+    The precision study found 36% of all findings in such copies."""
+    if not VENDORED_NAME.fullmatch(name):
+        return False
+    full = os.path.join(parent, name)
+    return any(os.path.isdir(os.path.join(full, sub)) for sub in ("core", "_libs", "tests"))
+
+
 IGNORE_RE = re.compile(r"#\s*pandas3-ready:\s*ignore(?:\s*\[([^\]]*)\])?")
 
 
@@ -54,7 +66,7 @@ def iter_files(root: str, ignore=()):
             yield root
         return
     for d, dirs, files in os.walk(root):
-        dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS and not x.endswith(".egg-info"))
+        dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS and not x.endswith(".egg-info") and not is_vendored_pandas(d, x))
         for f in sorted(files):
             p = os.path.join(d, f)
             rel = os.path.relpath(p, root).replace(os.sep, "/")
