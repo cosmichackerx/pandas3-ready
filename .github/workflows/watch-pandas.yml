@@ -1,0 +1,29 @@
+# Weekly: run the oracle against the newest pandas 3.x on PyPI. If a new pandas release changes a behaviour this tool relies on, this fails
+# (and the README's "checked on" versions need a look). It never changes the pinned CI matrix by itself.
+name: Newest pandas vs the oracle
+
+on:
+  schedule:
+    - cron: "43 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  newest:
+    name: oracle against the newest pandas 3.x
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: |
+          python -m venv "$RUNNER_TEMP/old" && "$RUNNER_TEMP/old/bin/pip" install -q "pandas==2.3.3" lxml
+          python -m venv "$RUNNER_TEMP/new" && "$RUNNER_TEMP/new/bin/pip" install -q "pandas>=3,<4" lxml
+          "$RUNNER_TEMP/old/bin/python" tests/oracle/run_oracle.py --exec "$RUNNER_TEMP/old.json"
+          "$RUNNER_TEMP/new/bin/python" tests/oracle/run_oracle.py --exec "$RUNNER_TEMP/new.json"
+          python tests/oracle/run_oracle.py "$RUNNER_TEMP/old.json" "$RUNNER_TEMP/new.json" | tee -a "$GITHUB_STEP_SUMMARY"

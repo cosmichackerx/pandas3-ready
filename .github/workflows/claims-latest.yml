@@ -1,0 +1,15 @@
+# Weekly: the README must pin the newest release of this repository (a stale pin tells readers to install an old version).
+name: README pins vs newest tag
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pins:
+    name: README pins equal the newest tag
+    uses: cosmichackerx/claims-check/.github/workflows/reusable-latest-tag.yml@v0.3.0

@@ -1,0 +1,78 @@
+{
+  "claims": [
+    {
+      "id": "oracle case count",
+      "file": "README.md",
+      "regex": "\\((\\d+) cases, see",
+      "expect": {
+        "command": "python tests/oracle/run_oracle.py --count",
+        "regex": "^(\\d+) cases"
+      }
+    },
+    {
+      "id": "oracle case count in the validation table",
+      "file": "README.md",
+      "regex": "\\| (\\d+) cases x 2 \\|",
+      "expect": {
+        "command": "python tests/oracle/run_oracle.py --count",
+        "regex": "^(\\d+) cases"
+      }
+    },
+    {
+      "id": "oracle case count in the verification list",
+      "file": "README.md",
+      "regex": "runs all (\\d+) cases",
+      "expect": {
+        "command": "python tests/oracle/run_oracle.py --count",
+        "regex": "^(\\d+) cases"
+      }
+    },
+    {
+      "id": "fixed case count",
+      "file": "README.md",
+      "regex": "\\| (\\d+) fixed cases \\|",
+      "expect": {
+        "command": "python tests/oracle/run_oracle.py --count",
+        "regex": ", (\\d+) fixed cases"
+      }
+    },
+    {
+      "id": "rule count in the README heading",
+      "file": "README.md",
+      "regex": "## Rules \\((\\d+)\\)",
+      "expect": {
+        "command": "python tests/oracle/run_oracle.py --count",
+        "regex": ", (\\d+) rules"
+      }
+    },
+    {
+      "id": "rules registered equal rules covered by the oracle",
+      "file": "README.md",
+      "regex": "## Rules \\((\\d+)\\)",
+      "expect": {
+        "command": "PYTHONPATH=src python -c \"from pandas3_ready.rules import RULES; print(len(RULES))\"",
+        "regex": "^(\\d+)$"
+      }
+    },
+    {
+      "id": "unit tests",
+      "file": "README.md",
+      "regex": "(\\d+)\\+ unit tests",
+      "match": "at-least",
+      "max_gap": 25,
+      "expect": {
+        "command": "python -m pytest --collect-only -q",
+        "regex": "^(\\d+) tests? collected"
+      }
+    },
+    {
+      "id": "action and hook pins in the README",
+      "file": "README.md",
+      "regex": "(?:pandas3-ready@|rev: )v([0-9.]+)",
+      "expect": {
+        "file": "pyproject.toml",
+        "regex": "^version = \"([0-9.]+)\""
+      }
+    }
+  ]
+}

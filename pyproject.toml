@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pandas3-ready"
+version = "0.1.0"
+description = "Find code that breaks or silently changes on pandas 3.0: chained assignment, removed APIs and keywords, offset aliases, the str dtype. Reads .py and notebooks without running them; every rule is checked on pandas 2.3.3 and 3.0.x. SARIF and GitHub Action."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Muhammad Arslan", email = "cosmichackerx@users.noreply.github.com" }]
+keywords = ["pandas", "pandas3", "pandas-3", "copy-on-write", "migration", "lint", "linter", "static-analysis", "sarif", "jupyter", "notebook", "ci", "github-actions", "deprecation", "python"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Environment :: Console",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.urls]
+Homepage = "https://github.com/cosmichackerx/pandas3-ready"
+Issues = "https://github.com/cosmichackerx/pandas3-ready/issues"
+
+[project.scripts]
+pandas3-ready = "pandas3_ready.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
