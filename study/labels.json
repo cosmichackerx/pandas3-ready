@@ -1,0 +1,49 @@
+{
+ "about": "Hand labels, one labeller. Sample A: findings of v0.1.0 (study/sample.py, seed 20261004, cap 8 per rule x confidence, at most 2 per repo, 248 items). Sample B: high and medium findings after the first fixes (seed 777, cap 3, at most 1 per repo, 82 items; many findings also appear in A). Items not listed are counted as true. 'fp' = wrong for the file as written; 'unclear' = the context needed to decide is not in the file. Numbering = index in the sample json.",
+ "A": {
+  "fp": {
+   "18": "self.sd_aggregated[cls][k]=...: nested dict/list, not a DataFrame",
+   "19": "self.M_k[i][1]=...: list/array",
+   "20": "scaled_datapacks[df_idx][column]: list of DataFrames, write goes to the DataFrame itself",
+   "21": "dict of options",
+   "22": "dict",
+   "23": "dict/list",
+   "24": "dict",
+   "25": "AnnData .uns dict",
+   "26": "c.pnl[n].loc[...]=: pnl is a dict of DataFrames, so pnl[n] is the DataFrame itself, no copy",
+   "29": "same: dict of DataFrames subscripted, then .loc[...] +=",
+   "44": "systemData is a dict of DataFrames: reset_index(inplace=True) on the element works in pandas 3",
+   "46": "data is a dict of DataFrames (dict literal of read_csv): data['x'].fillna(inplace=True) works in pandas 3",
+   "53": "pd.Index(t).asi8 is a NumPy array: ndarray.astype(copy=False) is valid",
+   "87": "StartTimeUnixNano is already integer nanoseconds, not a datetime column",
+   "110": "code already handles string dtype (is_string_dtype in the same condition)",
+   "116": "arr is a NumPy array",
+   "117": "bvalues is a NumPy array",
+   "122": "condition already accepts 'string' dtype"
+  },
+  "unclear": {
+   "79": "unknown whether start_phase_time is datetime",
+   "80": "column 'hora' type unknown",
+   "82": "column 'dt' type unknown",
+   "86": "likely datetime, not shown",
+   "88": "likely datetime, not shown",
+   "89": "df.index type not shown",
+   "90": "column 'time' type unknown",
+   "91": "column type not shown",
+   "111": "y.dtype: y is unknown (could be a NumPy array)",
+   "123": "df_column unknown"
+  }
+ },
+ "B": {
+  "fp": {
+   "15": "dfs[0].rename(inplace=True): positional index of a list of frames, not a column",
+   "49": "scipy.signal.resample(x, n, axis=-1): a function of another library"
+  },
+  "unclear": {
+   "17": "astype(dtype, copy=False) on a DatetimeArray inside a copy of pandas' own astype.py; ExtensionArray.astype has a real copy parameter",
+   "24": "valid_dates is a column called 'date', dtype not shown",
+   "27": "df.index.values: index type not shown",
+   "36": "geometry_data may be a GeoSeries; dtype not shown"
+  }
+ }
+}

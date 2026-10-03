@@ -185,3 +185,11 @@ case("cp-rename", "copy-keyword", "print(pd.Series([1]).rename('a', copy=False).
 case("cp-concat", "copy-keyword", "print(pd.concat([pd.Series([1])], copy=False).tolist())", "warn3", "print(pd.concat([pd.Series([1])]).tolist())")
 case("cp-merge", "copy-keyword", "a = pd.DataFrame({'k': [1]})\nprint(pd.merge(a, a, copy=False).shape)", "warn3", "a = pd.DataFrame({'k': [1]})\nprint(pd.merge(a, a).shape)")
 case("cp-neg-numpy", None, "import numpy as np\nprint(np.array([1]).astype('int64', copy=False).tolist())", "same", fires=False)
+
+# ---- negatives added after the precision study (v0.2.0): patterns that looked like findings in real code and are not
+case("ci-neg-dict-of-frames", None, "d = {'a': pd.DataFrame({'a': [None, 1.0]})}\nd['a'].fillna(0, inplace=True)\nprint(d['a']['a'].tolist())", "same", fires=False,
+     note="d['a'] is a dict lookup: the DataFrame itself is modified, on 2.3.3 and 3.x")
+case("ca-neg-dict-of-frames", None, "d = {'a': pd.DataFrame({'a': [1, 2]})}\nd['a']['b'] = 5\nprint(d['a']['b'].tolist())", "same", fires=False)
+case("cp-neg-asi8", None, "t = pd.to_datetime(pd.Series(['2024-01-01']))\nprint(pd.Index(t).asi8.astype('int64', copy=False).shape)", "same", fires=False)
+case("od-neg-string-aware", None, PRE + "x = pd.Series(['a', None])\nprint(x.dtype == 'object' or x.dtype == 'string' or pd.api.types.is_string_dtype(x))", "same", fires=False,
+     note="the condition already accepts the string dtype, so it is True on 2.3.3 (object) and 3.x (str)")

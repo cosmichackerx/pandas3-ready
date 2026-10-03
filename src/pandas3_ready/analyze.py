@@ -21,7 +21,7 @@ FACTORIES = {"pandas." + n for n in (
     "period_range timedelta_range json_normalize wide_to_long factorize".split())}
 NONPD_ATTRS = {"values", "to_numpy", "array", "tolist", "to_list", "to_dict", "to_records", "shape", "size", "ndim", "dtype", "item", "iterrows", "itertuples",
                "items", "to_csv", "to_json", "to_string", "to_html", "to_latex", "to_parquet", "to_excel", "to_sql", "to_pickle", "to_markdown",
-               "to_clipboard", "to_feather", "to_hdf", "to_xml", "to_gbq", "to_stata", "empty", "memory_usage", "info", "describe_option"}
+               "to_clipboard", "to_feather", "to_hdf", "to_xml", "to_gbq", "to_stata", "empty", "memory_usage", "info", "describe_option", "asi8", "codes"}
 INDEXERS = {"loc", "iloc", "at", "iat"}
 DF_NAME = re.compile(r"^(df|dfs|frame)\d*$|^df_|_df\d*$|_df_|^data_?frame", re.I)
 NAN_TEXT = {"nan", "NaN", "None", "<NA>", "NAN"}
@@ -126,6 +126,7 @@ class State:
     def __init__(self):
         self.alias: dict = {}
         self.pandas_imported = False
+        self.foreign: set = set()   # names bound by `import x` / `import x as y` of a non-pandas module
         self.known: dict = {}      # scope id -> {key: bool}
         self.parent: dict = {}     # scope id -> parent scope id
         self.assigns: dict = {}    # scope id -> {key: [assigned value nodes]}, accumulated over notebook cells
@@ -147,6 +148,7 @@ class Analyzer:
         self.hits: list = []
         self.scope = 0
         self._seen: set = set()
+        self._guard: set = set()
 
     # ---------------------------------------------------------------- imports / names
     def collect_imports(self, tree):
@@ -154,6 +156,8 @@ class Analyzer:
             if isinstance(n, ast.Import):
                 for a in n.names:
                     top = a.name.split(".")[0]
+                    if top not in ("pandas", "numpy"):
+                        self.s.foreign.add(a.asname or top)
                     if top in ("pandas", "numpy"):
                         if a.asname:
                             self.s.alias[a.asname] = a.name
@@ -311,6 +315,24 @@ class Analyzer:
             return self.is_pd(n.body, sc) and self.is_pd(n.orelse, sc)
         return False
 
+    def is_foreign_module_call(self, recv) -> bool:
+        r = self.root(recv) if recv is not None else None
+        return isinstance(r, ast.Name) and r.id in self.s.foreign and not self.lookup(r.id, self.scope)
+
+    def is_dictlike(self, n) -> bool:
+        """A name only ever assigned a dict (literal, comprehension, dict(), defaultdict()): d['k'] is a dict lookup, not a column selection."""
+        if not isinstance(n, ast.Name):
+            return False
+        sc = self.scope
+        while sc is not None:
+            vals = self.s.assigns.get(sc, {}).get(n.id)
+            if vals:
+                return all(isinstance(v, (ast.Dict, ast.DictComp)) or (isinstance(v, ast.Call) and isinstance(v.func, (ast.Name, ast.Attribute))
+                                                                        and (v.func.id if isinstance(v.func, ast.Name) else v.func.attr) in ("dict", "defaultdict", "OrderedDict"))
+                           for v in vals)
+            sc = self.s.parent.get(sc)
+        return False
+
     def root(self, n):
         while True:
             if isinstance(n, (ast.Attribute, ast.Subscript)):
@@ -416,6 +438,8 @@ class Analyzer:
             steps += 1
             col_attr = True
             node = node.value
+        if self.is_dictlike(node):
+            steps -= 1   # d['k'] on a dict of DataFrames is a dict lookup, the DataFrame is not copied
         if steps < 2:
             return
         ev = self.evidence(t.value if not col_attr else node)
@@ -436,6 +460,20 @@ class Analyzer:
                 self.add("chained-assignment", stmt, "chained assignment: df[...].col = v writes to a copy in pandas 3; use df.loc[rows, col] = v", "high")
 
     # ---------------------------------------------------------------- rules: comparisons / arithmetic
+    def v_BoolOp(self, n):
+        def string_aware(x):
+            for y in ast.walk(x):
+                if isinstance(y, ast.Constant) and y.value in ("string", "str"):
+                    return True
+                if isinstance(y, (ast.Name, ast.Attribute)) and (getattr(y, "id", None) or getattr(y, "attr", None)) in ("is_string_dtype", "StringDtype"):
+                    return True
+            return False
+        if any(string_aware(v) for v in n.values):
+            for v in n.values:
+                for y in ast.walk(v):
+                    if isinstance(y, ast.Compare):
+                        self._guard.add(id(y))
+
     def v_Compare(self, n):
         left, ops, comps = n.left, n.ops, n.comparators
         for op, right in zip(ops, comps):
@@ -461,6 +499,8 @@ class Analyzer:
                 return
         elif not self.is_object_marker(b):
             return
+        if id(n) in self._guard:
+            return   # the same condition already looks for the string dtype
         ev = self.evidence(a.value)
         conf = "high" if ev == "known" else "medium" if ev == "hint" else "low"
         self.add("object-dtype-check", n, f"`{a.attr} == object` is False for text columns in pandas 3 (they use the str dtype)", conf)
@@ -570,7 +610,11 @@ class Analyzer:
             return
         sel = recv
         if isinstance(sel, ast.Subscript):
+            if self.is_dictlike(sel.value):
+                return   # d['k'].fillna(..., inplace=True) on a dict of DataFrames changes the DataFrame itself
             ev = self.evidence(sel)
+            if ev != "known" and isinstance(sel.slice, ast.Constant) and isinstance(sel.slice.value, int) and not isinstance(sel.slice.value, bool):
+                return   # dfs[0].rename(..., inplace=True): positional index on a list of frames, not a column of a frame
         elif isinstance(sel, ast.Attribute) and sel.attr not in PANDAS_ATTRS and self.is_pd(sel.value) and sel.attr not in INDEXERS:
             ev = "known"   # df.col.fillna(0, inplace=True)
         else:
@@ -624,6 +668,8 @@ class Analyzer:
             for k, adv in REMOVED_KW[q].items():
                 if call_kw(n, k) is not None:
                     self.add("removed-keyword", n, f"{q.split('.')[-1]}({k}=...) was removed in pandas 3: {adv}", "high")
+        if method and self.is_foreign_module_call(recv):
+            return   # scipy.signal.resample(x, n, axis=-1), sklearn.utils.resample(...): a function of another library
         if method:
             if name in REMOVED_METHOD_ANY:
                 self.add("removed-method", n, f".{name}(): {REMOVED_METHOD_ANY[name]}", hi)
