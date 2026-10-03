@@ -1,5 +1,5 @@
 name: pandas3-ready
-description: "Find code that breaks or silently changes on pandas 3: chained assignment, removed APIs, offset aliases. Checked on pandas 2.3.3 and 3.x."
+description: "Find code that breaks or silently changes on pandas 3: chained assignment, removed APIs, offset aliases. Run on real pandas."
 author: cosmichackerx
 branding:
   icon: alert-triangle
