@@ -51,7 +51,7 @@ def main(argv=None) -> int:
             print(f"not rewritten {sk.file}:{sk.line}: {sk.why}  [{sk.rule}]", file=sys.stderr)
         left = scan(a.path, a.ignore, a.disable, a.only, a.min_confidence)
         print(f"pandas3-ready: {len(edits)} edit(s) in {changed} file(s){'' if a.fix else ' (nothing written)'}, {len(skips)} not rewritten, {len(left.findings)} finding(s) "
-              f"{'remain' if a.fix else 'before the fixes'} that need a human; {notebooks} notebook(s) are never rewritten (run without --fix for the list)", file=sys.stderr)
+              f"{'remain that need a human' if a.fix else 'in total now (the edits above fix some of them)'}; {notebooks} notebook(s) are never rewritten (run without --fix for the list)", file=sys.stderr)
         return 1 if a.diff and edits else 0
     if a.base:
         try:

@@ -1,4 +1,4 @@
-# Precision study (v0.1.0 findings, v0.2.0 fixes)
+# Precision study (v0.1.0 findings, v0.2.0 and v0.4.0 fixes)
 
 Question: **when pandas3-ready reports something in real, untyped Python code, is the report right?** This is the number the README leads with, because without type inference the scanner cannot prove that a variable is a DataFrame; it can only assign a confidence level. Recall (what it misses) was **not** measured.
 
@@ -83,7 +83,30 @@ Sample B found **two more false-positive classes**, both fixed afterwards (so B 
 * `dfs[0].rename(..., inplace=True)`: a positional index on a list of frames, `medium` (now skipped when the subscript is an integer and the receiver is not known to be pandas).
 * `scipy.signal.resample(x, n, axis=-1)` matched `.resample(axis=)`: a function of another library imported with `import scipy.signal` (now skipped when the receiver is the name of an imported non-pandas module).
 
-The final scanner (v0.2.0) was re-run on the full corpus: 3,259 findings (1,274 high, 1,001 medium, 984 low) in 4,068 pandas files (the vendored copies are gone). It has **not** been re-sampled after these last two fixes; their effect was checked on the two labelled items, by unit tests, and by four new negative oracle cases (168 cases in total, 0 disagreements between pandas 2.3.3 and 3.0.0/3.0.6).
+The final scanner (v0.2.0) was re-run on the full corpus: 3,259 findings (1,274 high, 1,001 medium, 984 low) in 4,068 pandas files (the vendored copies are gone). It was **not** re-sampled after these last two fixes until sample C (below); their effect was checked on the two labelled items, by unit tests, and by four new negative oracle cases (168 cases in total, 0 disagreements between pandas 2.3.3 and 3.0.0/3.0.6).
+
+## Sample C and the data-flow change (v0.4.0)
+
+v0.4.0 adds one small piece of data flow: a name or `self.attr` that is only ever assigned a dict (literal, comprehension, `dict()`, a `.copy()` / `deepcopy` / alias of such a dict, or the result of a function of the same file whose every `return` is one) is a dict, so `data['a']...` on it is a dict lookup, not a column selection.
+
+**What it removed.** The whole corpus was re-scanned (`study/run_scan.py`): 145 findings that v0.2.0/v0.3.0 reported are gone, none are new. Two were `medium` (`systemData['Agg_Players'].reset_index(inplace=True)` and a `.loc[...] =` on it, where `systemData` is returned by `data_import()` and is a dict of frames: the labelled false positive 44 of sample A); 143 were `low` `chained-assignment` (hidden by default), mostly `self.something[k][j] = ...` on attributes initialised as `{}`. I read the code behind both `medium` ones and 14 randomly chosen `low` ones: all 16 were dicts, so the removal was right. The other 129 were **not** read one by one.
+What it did not remove: items 26 and 29 of sample A (`c.pnl[n].loc[...] =`, `network.buses_t[n]...`): attributes of library objects (PyPSA) that hold dicts of frames; the file does not say so.
+
+**Sample C.** A fresh sample of `high` and `medium` findings of the v0.4.0 scanner (`study/sample.py`, seed 20261003, at most 3 per rule and level, 1 per repository, 63 items), drawn only from the 5,287 repositories that are in neither sample A nor B (238 repositories excluded). Labels in `study/labels.json`, items in `study/sample-C.json`.
+
+| Confidence | Findings | Hand-checked | True | False | Unclear | Precision (95% Wilson) |
+|---|---:|---:|---:|---:|---:|---|
+| high | 852 | 35 | 35 | 0 | 0 | 100% (90% to 100%) |
+| medium | 698 | 28 | 27 | 0 | 1 | 100% (88% to 100%); worst case 96% |
+| all | 1,550 | 63 | 62 | 0 | 1 | 100% (94% to 100%); worst case 98% |
+
+The one unclear item: `data['time'].astype('int64') // 10**9` where the dtype of `time` is not visible (a comment calls it a time column).
+
+How to read this, honestly:
+* **Zero false positives in 63 does not mean zero in the corpus.** The upper bound is what the interval says: for `medium`, the true rate of false positives could be around 12% and still produce this sample. Sample B had 2 in 36.
+* Same labeller, who wrote the scanner, and who knew which classes had been fixed. The sample has at most 3 per rule and level, so rare rules are over-represented compared with their share of findings, and the common `medium` classes (`chained-inplace`, `removed-offset-alias` on `resample('M')`) are covered by 3 items each.
+* The sample cannot show the dict change helped: it removed 2 `medium` findings out of about 1,000 (0.2%). Its effect on the headline number is therefore tiny. What the change does is remove one class of false positives that the study had found (a dict returned by a function) and a larger group of `low` ones.
+* The medium precision trend over the samples (A: 92 of 98, B: 33 of 35, C: 27 of 28) is real but the three samples are different draws with different fixes in between, not a controlled before/after.
 
 ## What the numbers do not say
 
@@ -103,6 +126,9 @@ python study/download.py files.json files --max-per-repo 3
 python study/run_scan.py files scan.json
 python study/sample.py scan.json files sample.md --seed 20261004 --cap 8 --per-repo 2
 python study/tabulate.py scan.json study/sample-A.json A
+# sample C: scan with v0.4.0, keep high+medium findings of repositories not in A or B, then
+python study/sample.py scanC.json files sampleC.md --seed 20261003 --cap 3 --per-repo 1
+python study/tabulate.py scanC.json study/sample-C.json C
 ```
 
 `study/corpus.tsv` lists the 6,000 sampled files with the commit each was fetched at.

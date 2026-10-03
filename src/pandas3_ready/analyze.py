@@ -134,6 +134,7 @@ class State:
         self.known: dict = {}      # scope id -> {key: bool}
         self.parent: dict = {}     # scope id -> parent scope id
         self.assigns: dict = {}    # scope id -> {key: [assigned value nodes]}, accumulated over notebook cells
+        self.funcs: dict = {}      # function/method name -> [FunctionDef nodes] defined in this file (for 'does it return a dict')
         self.counter = 0
         self.module_scope = None
 
@@ -201,6 +202,8 @@ class Analyzer:
                 if isinstance(ch, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
                     ns = self.new_scope(sc)
                     self._scope_of[id(ch)] = ns
+                    if not isinstance(ch, ast.Lambda):
+                        self.s.funcs.setdefault(ch.name, []).append(ch)
                     args = ch.args
                     for a in args.posonlyargs + args.args + args.kwonlyargs + ([args.vararg] if args.vararg else []) + ([args.kwarg] if args.kwarg else []):
                         ann = getattr(a, "annotation", None)
@@ -323,18 +326,62 @@ class Analyzer:
         r = self.root(recv) if recv is not None else None
         return isinstance(r, ast.Name) and r.id in self.s.foreign and not self.lookup(r.id, self.scope)
 
-    def is_dictlike(self, n) -> bool:
-        """A name only ever assigned a dict (literal, comprehension, dict(), defaultdict()): d['k'] is a dict lookup, not a column selection."""
-        if not isinstance(n, ast.Name):
+    DICT_CTORS = ("dict", "defaultdict", "OrderedDict")
+
+    def dict_expr(self, v, sc, depth=0) -> bool:
+        """Is this assigned value certainly a dict? A literal, a comprehension, dict()/defaultdict(), a copy of such a dict, an alias of a name that only ever holds dicts, or a call to a function of this file whose every `return` is one."""
+        if depth > 4 or not isinstance(v, ast.AST):
             return False
-        sc = self.scope
+        if isinstance(v, (ast.Dict, ast.DictComp)):
+            return True
+        if isinstance(v, ast.Name):
+            return self.name_dict(v.id, sc, depth + 1)
+        if isinstance(v, ast.Call) and isinstance(v.func, (ast.Name, ast.Attribute)):
+            f = v.func
+            nm = f.id if isinstance(f, ast.Name) else f.attr
+            if nm in self.DICT_CTORS:
+                return True
+            if isinstance(f, ast.Attribute) and nm == "copy" and not v.args:
+                return self.dict_expr(f.value, sc, depth + 1)
+            if nm == "deepcopy" and len(v.args) == 1:
+                return self.dict_expr(v.args[0], sc, depth + 1)
+            if isinstance(f, ast.Name) or (isinstance(f.value, ast.Name) and f.value.id in ("self", "cls")):
+                defs = self.s.funcs.get(nm)
+                return bool(defs) and all(self.returns_dict(d, depth + 1) for d in defs)
+        return False
+
+    def returns_dict(self, fd, depth) -> bool:
+        if depth > 4:
+            return False
+        rets, todo = [], list(fd.body)
+        while todo:
+            x = todo.pop()
+            if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(x, (ast.Yield, ast.YieldFrom)):
+                return False
+            if isinstance(x, ast.Return):
+                rets.append(x.value)
+            todo.extend(ast.iter_child_nodes(x))
+        sc = self._scope_of.get(id(fd))
+        return bool(rets) and sc is not None and all(r is not None and self.dict_expr(r, sc, depth) for r in rets)
+
+    def name_dict(self, name, sc, depth=0) -> bool:
         while sc is not None:
-            vals = self.s.assigns.get(sc, {}).get(n.id)
+            vals = self.s.assigns.get(sc, {}).get(name)
             if vals:
-                return all(isinstance(v, (ast.Dict, ast.DictComp)) or (isinstance(v, ast.Call) and isinstance(v.func, (ast.Name, ast.Attribute))
-                                                                        and (v.func.id if isinstance(v.func, ast.Name) else v.func.attr) in ("dict", "defaultdict", "OrderedDict"))
-                           for v in vals)
+                return all(self.dict_expr(v, sc, depth) for v in vals)
             sc = self.s.parent.get(sc)
+        return False
+
+    def is_dictlike(self, n) -> bool:
+        """A name (or self.attr) only ever assigned dicts, directly, through an alias or copy, or through a function of this file: d['k'] is a dict lookup, not a column selection."""
+        if isinstance(n, ast.Name):
+            return self.name_dict(n.id, self.scope)
+        k = _target_key(n) if isinstance(n, ast.Attribute) else None
+        if k and k.startswith("self."):
+            vals = [(sc, v) for sc, d in self.s.assigns.items() for v in d.get(k, [])]
+            return bool(vals) and all(self.dict_expr(v, sc) for sc, v in vals)
         return False
 
     def root(self, n):
