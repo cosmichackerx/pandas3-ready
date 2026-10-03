@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 - 2026-10-04
+## 0.2.0 - 2026-10-03
 
 * **Precision study** on 5,887 public files (5,525 repositories), 248 findings hand-labelled (`docs/precision-study.md`, `study/`): `high` 119/120 correct, `medium` 92/98, `low` 9/20. Findings of v0.1.0 were wrong in 18 cases; 7 classes found.
 * False positives fixed: subscripts of dicts of DataFrames (`data['a'].fillna(0, inplace=True)`), `.asi8` (NumPy array) with `astype(copy=False)`, `dtype == 'object'` in a condition that already accepts the string dtype, `dfs[0].rename(inplace=True)` (positional index on a list), functions of other libraries called through an imported module (`scipy.signal.resample(axis=)`).
