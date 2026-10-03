@@ -1,5 +1,5 @@
 {
- "about": "Hand labels, one labeller. Sample A: findings of v0.1.0 (study/sample.py, seed 20261004, cap 8 per rule x confidence, at most 2 per repo, 248 items). Sample B: high and medium findings after the first fixes (seed 777, cap 3, at most 1 per repo, 82 items; many findings also appear in A). Items not listed are counted as true. 'fp' = wrong for the file as written; 'unclear' = the context needed to decide is not in the file. Numbering = index in the sample json.",
+ "about": "Hand labels, one labeller. Sample A: findings of v0.1.0 (study/sample.py, seed 20261004, cap 8 per rule x confidence, at most 2 per repo, 248 items). Sample B: high and medium findings after the first fixes (seed 777, cap 3, at most 1 per repo, 82 items; many findings also appear in A). Items not listed are counted as true. 'fp' = wrong for the file as written; 'unclear' = the context needed to decide is not in the file. Numbering = index in the sample json. Sample C: high and medium findings of the v0.4.0 scanner (study/sample.py, seed 20261003, cap 3, at most 1 per repo, 63 items) drawn only from repositories that are in neither A nor B (238 repositories excluded).",
  "A": {
   "fp": {
    "18": "self.sd_aggregated[cls][k]=...: nested dict/list, not a DataFrame",
@@ -44,6 +44,12 @@
    "24": "valid_dates is a column called 'date', dtype not shown",
    "27": "df.index.values: index type not shown",
    "36": "geometry_data may be a GeoSeries; dtype not shown"
+  }
+ },
+ "C": {
+  "fp": {},
+  "unclear": {
+   "17": "data['time'] is described as a time column by the comment but its dtype is not shown (could already be integers or strings)"
   }
  }
 }

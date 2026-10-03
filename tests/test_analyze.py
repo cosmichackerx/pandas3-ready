@@ -269,3 +269,60 @@ def test_resample_axis_on_a_frame_is_still_reported():
 def test_positional_index_on_a_list_of_frames_is_not_a_column_selection():
     assert found("dfs = load()\ndfs[0].rename(columns={'a': 'b'}, inplace=True)\n") == []
     assert found("df = pd.read_csv('a.csv')\ndf[0].fillna(0, inplace=True)\n") == [("chained-inplace", "high")]
+
+
+# ---------------------------------------------------------------- light data flow (v0.4.0): dicts through same-file functions, aliases, copies
+USE = "data['a'].fillna(0, inplace=True)\n"
+
+
+def test_dict_returned_by_a_function_of_the_same_file():
+    src = "def load():\n    out = {'a': pd.read_csv('a.csv')}\n    return out\ndata = load()\n" + USE
+    assert found(src) == []
+
+
+def test_dict_literal_returned_directly_and_through_a_second_function():
+    src = "def inner():\n    return {'a': pd.DataFrame()}\ndef load():\n    return inner()\ndata = load()\n" + USE
+    assert found(src) == []
+
+
+def test_method_returning_a_dict_via_self():
+    src = "class C:\n    def load(self):\n        return dict(a=pd.DataFrame())\n    def run(self):\n        data = self.load()\n        " + USE
+    assert found(src) == []
+
+
+def test_alias_and_copy_of_a_dict():
+    src = "base = {'a': pd.DataFrame()}\ndata = base\n" + USE + "data = base.copy()\n" + USE
+    assert found(src) == []
+    import_copy = "import copy\nbase = {'a': pd.DataFrame()}\ndata = copy.deepcopy(base)\n" + USE
+    assert found(import_copy) == []
+
+
+def test_self_attribute_that_is_only_ever_a_dict():
+    src = "class C:\n    def __init__(self):\n        self.frames = {}\n    def f(self):\n        self.frames['a'].fillna(0, inplace=True)\n"
+    assert found(src) == []
+
+
+def test_function_returning_a_dataframe_is_still_checked():
+    src = "def load():\n    return pd.read_csv('a.csv')\ndata = load()\n" + USE
+    assert found(src) == [("chained-inplace", "medium")]
+
+
+def test_one_return_that_is_not_a_dict_keeps_the_finding():
+    src = "def load(flag):\n    if flag:\n        return {'a': 1}\n    return pd.read_csv('a.csv')\ndata = load(1)\n" + USE
+    assert found(src) == [("chained-inplace", "medium")]
+
+
+def test_bare_return_generator_and_missing_return_keep_the_finding():
+    for body in ("    if x:\n        return\n    return {}\n", "    yield {}\n", "    pass\n"):
+        src = "def load(x=1):\n" + body + "data = load()\n" + USE
+        assert found(src) == [("chained-inplace", "medium")], body
+
+
+def test_two_functions_with_the_same_name_must_both_return_dicts():
+    src = "class A:\n    def load(self):\n        return {}\nclass B:\n    def load(self):\n        return pd.DataFrame()\ndata = A().load()\nx = data\n" + USE
+    assert found(src) == [("chained-inplace", "medium")]
+
+
+def test_recursive_function_does_not_loop():
+    src = "def load():\n    return load()\ndata = load()\n" + USE
+    assert found(src) == [("chained-inplace", "medium")]

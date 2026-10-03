@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-10-03
+
+* **Light data flow for dicts**: a name or `self.attr` that is only ever assigned a dict, a copy or alias of one, or the result of a same-file function whose every `return` is a dict, is no longer treated as a DataFrame (`data = load(); data['a'].fillna(inplace=True)`). On the study corpus 145 findings disappear (2 `medium`, 143 `low`), none appear; 16 of them were read and all were dicts. Unit tests: 10 new.
+* **Precision study, sample C** (63 findings, repositories not in A/B): `high` 35 of 35, `medium` 27 of 28 (1 unclear); no false positive seen, which is not a proof of none (`docs/precision-study.md`). Remaining known `medium` class: a library object's attribute holding a dict of frames (`c.pnl[n].loc[...]`).
+* `--diff` summary wording: the number is all findings in the files (some are fixed by the edits shown).
+* README: the sentence 'fixed in v0.3.0' for the v0.2.0 false-positive fixes was wrong in the v0.3.0 README and is corrected.
+
 ## 0.3.0 - 2026-10-03
 
 * **`--fix` and `--diff`**: auto-apply only rewrites proven on real pandas by the new fix oracle (75 cases: 63 fix, 12 refusal; 0 problems on 2.3.3 vs 3.0.0 and 3.0.6): `fillna(method=)` to `.ffill()`/`.bfill()`, `applymap` to `map`, `H/T/L/U/N/S` and `M/Q/Y/A` aliases where the datetime context is certain, Timedelta units, `delim_whitespace=True` to `sep=r"\s+"`, `infer_datetime_format` and `copy=` removal. Ambiguous cases (`resample("M")` on a possible PeriodIndex, `fillna(value, method=)`, comments between arguments) are refused with a reason. Idempotent. Notebooks are never rewritten.

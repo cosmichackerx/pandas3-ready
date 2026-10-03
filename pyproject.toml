@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pandas3-ready"
-version = "0.3.0"
+version = "0.4.0"
 description = "Find code that breaks or silently changes on pandas 3.0: chained assignment, removed APIs and keywords, offset aliases, the str dtype. Reads .py and notebooks without running them; every rule is checked on pandas 2.3.3 and 3.0.x. SARIF and GitHub Action."
 readme = "README.md"
 requires-python = ">=3.9"
