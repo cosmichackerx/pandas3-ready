@@ -80,6 +80,12 @@ jobs:
           "$RUNNER_TEMP/new/bin/python" tests/oracle/run_oracle.py --exec "$RUNNER_TEMP/new.json"
       - name: Compare; fail on any disagreement between pandas and the scanner
         run: python tests/oracle/run_oracle.py "$RUNNER_TEMP/old.json" "$RUNNER_TEMP/new.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Run every --fix case on both (original vs fixed must print the same)
+        run: |
+          "$RUNNER_TEMP/old/bin/python" tests/oracle/run_fix_oracle.py --exec "$RUNNER_TEMP/fix_old.json"
+          "$RUNNER_TEMP/new/bin/python" tests/oracle/run_fix_oracle.py --exec "$RUNNER_TEMP/fix_new.json"
+      - name: Compare the --fix runs; fail on any difference, warning, non-idempotent or wrongly accepted rewrite
+        run: python tests/oracle/run_fix_oracle.py "$RUNNER_TEMP/fix_old.json" "$RUNNER_TEMP/fix_new.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
   action:
     name: action (this checkout, fixtures)

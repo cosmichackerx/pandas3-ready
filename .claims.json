@@ -55,6 +55,15 @@
       }
     },
     {
+      "id": "fix oracle case count",
+      "file": "README.md",
+      "regex": "\\| (\\d+) cases \\(\\d+ fix",
+      "expect": {
+        "command": "python tests/oracle/run_fix_oracle.py --count",
+        "regex": "^(\\d+) cases"
+      }
+    },
+    {
       "id": "unit tests",
       "file": "README.md",
       "regex": "(\\d+)\\+ unit tests",

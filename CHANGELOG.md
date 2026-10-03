@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - 2026-10-03
+
+* **`--fix` and `--diff`**: auto-apply only rewrites proven on real pandas by the new fix oracle (75 cases: 63 fix, 12 refusal; 0 problems on 2.3.3 vs 3.0.0 and 3.0.6): `fillna(method=)` to `.ffill()`/`.bfill()`, `applymap` to `map`, `H/T/L/U/N/S` and `M/Q/Y/A` aliases where the datetime context is certain, Timedelta units, `delim_whitespace=True` to `sep=r"\s+"`, `infer_datetime_format` and `copy=` removal. Ambiguous cases (`resample("M")` on a possible PeriodIndex, `fillna(value, method=)`, comments between arguments) are refused with a reason. Idempotent. Notebooks are never rewritten.
+* Dry run on a local copy of the study corpus: 846 edits in 313 files, all still parse.
+* `--fix` and `--diff` cannot be combined with each other or with `--base`.
+* SyntaxWarnings from parsing other people's code are silenced.
+
 ## 0.2.0 - 2026-10-03
 
 * **Precision study** on 5,887 public files (5,525 repositories), 248 findings hand-labelled (`docs/precision-study.md`, `study/`): `high` 119/120 correct, `medium` 92/98, `low` 9/20. Findings of v0.1.0 were wrong in 18 cases; 7 classes found.
