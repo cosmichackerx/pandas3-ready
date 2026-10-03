@@ -25,7 +25,7 @@ The [precision study](#precision-study) reports the numbers per confidence level
 
 |  | Lite (try it in a minute) | Full (keep it in CI) |
 |---|---|---|
-| How | `pipx install git+https://github.com/cosmichackerx/pandas3-ready@v0.2.0` then `pandas3-ready .` (read-only, no network) | the [GitHub Action](#github-action) (SARIF, job summary, PR comment), the [pre-commit](#pre-commit) hook and `--base origin/main` [PR mode](#pr-mode) |
+| How | `pipx install git+https://github.com/cosmichackerx/pandas3-ready@v0.3.0` then `pandas3-ready .` (read-only, no network) | the [GitHub Action](#github-action) (SARIF, job summary, PR comment), the [pre-commit](#pre-commit) hook and `--base origin/main` [PR mode](#pr-mode) |
 | You get | a list of `file:line` findings with severity and confidence; exit code 1 on errors | the same on every pull request, only for lines the PR touches, in the Security tab as SARIF |
 | Not included | fixing the code (`--fix` is on the roadmap) | running your tests: pandas 3 changes data-dependent behaviour that no static tool sees |
 
@@ -38,15 +38,18 @@ Every number below is from this repository's own tests or scripts. "Not proven" 
 | Each rule's claim about pandas 3 (raises / silently changes / warns) is true | **Real pandas 2.3.3** and **real pandas 3.0.0 and 3.0.6**, in separate virtualenvs ([`tests/oracle/`](tests/oracle/)): each case is a small program run on both, and its outputs, exceptions and warnings are compared | 168 cases x 2 | all as expected on 3.0.0 and 3.0.6: the positive cases raise, change output or warn as the rule says; the negative cases behave the same on both versions | pandas 3.1 and later (a weekly job runs the newest 3.x); Python versions other than 3.13 for the oracle; data-dependent behaviour |
 | The scanner agrees with pandas on every case | The oracle also runs the scanner on each case's code: the rule must fire at the default confidence on positives and nothing may be reported on negatives | 164 | 164/164 | code the cases do not cover |
 | The recommended fix is equivalent | The fixed version of each case that has one is run on both pandas versions: same output on both, no warning on 3.x, and the scanner no longer reports it | 105 fixed cases | all equal | whether the fix is right for your data types |
-| Detection on real code | A [precision study](docs/precision-study.md): 5,887 public files in 5,525 repositories found by read-only code search, **248 findings labelled by hand** (sample A, v0.1.0) and 82 more after the fixes (sample B), with Wilson 95% intervals | v0.1.0 sample: **`high` 119 of 120 correct (99%), `medium` 92 of 98 (94%; 6 unclear), `low` 9 of 20 (hidden by default)**. 18 false positives in 7 classes, 7 fixed in v0.2.0; sample B after the first fixes: `high` 43 of 43, `medium` 33 of 35 | Convenience sample (search relevance order, queries chosen to make rules fire), one labeller who wrote the scanner, recall not measured, per-rule intervals wide (at most 8 items per rule and level). Not re-sampled after the last two fixes |
-| Unit tests | `pytest`: positives, negatives (numpy, torch, itertools, str.replace, dict-of-dict), confidence levels, notebooks, suppression, outputs, PR mode, sticky comment | 80+ unit tests | pass on Ubuntu, Windows, macOS with Python 3.9, 3.11, 3.13 | |
+| Detection on real code | A [precision study](docs/precision-study.md): 5,887 public files in 5,525 repositories found by read-only code search, **248 findings labelled by hand** (sample A, v0.1.0) and 82 more after the fixes (sample B), with Wilson 95% intervals | v0.1.0 sample: **`high` 119 of 120 correct (99%), `medium` 92 of 98 (94%; 6 unclear), `low` 9 of 20 (hidden by default)**. 18 false positives in 7 classes, 7 fixed in v0.3.0; sample B after the first fixes: `high` 43 of 43, `medium` 33 of 35 | Convenience sample (search relevance order, queries chosen to make rules fire), one labeller who wrote the scanner, recall not measured, per-rule intervals wide (at most 8 items per rule and level). Not re-sampled after the last two fixes |
+| Mechanical rewrites of `--fix` keep the program's behaviour | The [fix oracle](tests/oracle/run_fix_oracle.py): original code on pandas 2.3.3, fixed code on 2.3.3 and 3.0.x; outputs compared, deprecation warnings, idempotence, refusals | 75 cases (63 fix, 12 refusal) | 0 problems on 2.3.3 vs 3.0.0 and 3.0.6 | Only small programs; real projects' outputs; other pandas versions; Python other than 3.13 |
+| Unit tests | `pytest`: positives, negatives (numpy, torch, itertools, str.replace, dict-of-dict), confidence levels, notebooks, suppression, outputs, PR mode, sticky comment | 120+ unit tests | pass on Ubuntu, Windows, macOS with Python 3.9, 3.11, 3.13 | |
 
 ## Install and run
 
 ```
-pipx install git+https://github.com/cosmichackerx/pandas3-ready@v0.2.0      # or: pip install git+https://github.com/cosmichackerx/pandas3-ready@v0.2.0
+pipx install git+https://github.com/cosmichackerx/pandas3-ready@v0.3.0      # or: pip install git+https://github.com/cosmichackerx/pandas3-ready@v0.3.0
 pandas3-ready .                          # scan the current repository (.py and .ipynb)
 pandas3-ready . --base origin/main       # PR mode: only what this branch introduces
+pandas3-ready . --diff                   # show the mechanical fixes as a unified diff (writes nothing)
+pandas3-ready . --fix                    # apply them in place (.py only)
 pandas3-ready . -f sarif -o pandas3.sarif --fail-on never
 pandas3-ready . --min-confidence high    # only provably-pandas findings
 pandas3-ready --list-rules
@@ -81,6 +84,28 @@ report.py
 
 1 Python file(s) scanned, 1 import pandas; behaviour checked on pandas 2.3.3 and 3.0.6. 7 error, 4 warning, 1 note.
 ```
+
+## Fix the mechanical ones (`--fix`, `--diff`)
+
+`--diff` prints a unified diff of what `--fix` would change and writes nothing (exit 1 if anything would change); `--fix` applies it. Only rewrites that the [fix oracle](tests/oracle/run_fix_oracle.py) proved on real pandas are applied; everything else stays a finding for a human. Each rewrite is a small program run on pandas 2.3.3 (original) and on 2.3.3 and 3.0.x (fixed): the fixed program must print exactly what the original printed on 2.3.3, raise no deprecation warning, and a second `--fix` must change nothing.
+
+| Before | After | Needs |
+|---|---|---|
+| `fillna(method="ffill")`, `"pad"` | `.ffill()` (keeps `limit`, `axis`, `inplace`) | pandas 2.0 |
+| `fillna(method="bfill")`, `"backfill"` | `.bfill()` | pandas 2.0 |
+| `df.applymap(f)` | `df.map(f)` | **pandas 2.1** |
+| frequency aliases `H`, `BH`, `CBH`, `T`, `L`, `U`, `N`, `S` (also `2H`, `30T`) | `h`, `bh`, `cbh`, `min`, `ms`, `us`, `ns`, `s` | **pandas 2.2** |
+| `M`, `Q`, `Y`, `A`, `BM`, `AS` ... where a datetime frequency is certain (`date_range`, `Grouper`, `shift(freq=)`) | `ME`, `QE`, `YE`, `YE`, `BME`, `YS` ... | pandas 2.2 |
+| `Timedelta` / `to_timedelta` units `T`, `L`, `U`, `N`, `H` | `min`, `ms`, `us`, `ns`, `h` | pandas 2.2 |
+| `read_csv(..., delim_whitespace=True)` | `sep=r"\s+"` | any |
+| `infer_datetime_format=True/False` in `read_csv`, `read_table`, `to_datetime` | removed (no effect since pandas 2.0) | pandas 2.0 |
+| `copy=True/False` in the calls that lost it, `high` confidence only | removed | see below |
+
+Not rewritten, with the reason on stderr: `resample("M")` / `asfreq("M")` (valid on a `PeriodIndex`, so the right spelling depends on the index); `fillna(value, method=...)`, `downcast=`, `**kwargs` or a method that is not a string literal; `delim_whitespace` together with `sep` or `delimiter`, or not literally `True`; a keyword separated from its neighbours by a comment; overlapping edits; anything whose result would not parse. Only the aliases that mean the same on a `DatetimeIndex` and a `PeriodIndex` are rewritten at `medium` confidence, the others need `high`. `# pandas3-ready: ignore` comments are honoured. **Jupyter notebooks are never rewritten** (counted and reported; edit them in Jupyter).
+
+Know before you run it: `copy=False` no longer shares memory on pandas 3, so removing it is what pandas 3 does anyway; code that relied on a shared buffer was already wrong there. The new spellings (`h`, `min`, `ME`, `.map`) need pandas 2.1/2.2 or later, so run `--fix` after raising your minimum pandas, not before.
+
+On the study corpus (a local **copy** of 5,887 public files; nothing in anyone's repository was written): `--fix` made **846 edits in 313 files**, declined 119 with a reason, and left 935 notebooks alone. All 313 rewritten files still parse. A second `--fix` made 0 edits. This shows the rewrites apply cleanly at scale; it does not show that those projects' own outputs are unchanged (proved only for the oracle programs).
 
 ## Rules (19)
 
@@ -119,7 +144,7 @@ The last column is the number of oracle cases per rule (positive cases; 54 more 
 - uses: actions/checkout@v7
   with:
     fetch-depth: 0          # only needed for pr-mode
-- uses: cosmichackerx/pandas3-ready@v0.2.0
+- uses: cosmichackerx/pandas3-ready@v0.3.0
   with:
     path: .
     fail-on: error          # error | warning | never
@@ -137,7 +162,7 @@ Inputs: `path`, `fail-on`, `min-confidence`, `disable`, `ignore`, `summary` (job
 ```yaml
 repos:
   - repo: https://github.com/cosmichackerx/pandas3-ready
-    rev: v0.2.0
+    rev: v0.3.0
     hooks:
       - id: pandas3-ready        # report; fails the commit on errors
 ```
@@ -159,7 +184,7 @@ Full write-up with method, tables and limits: [`docs/precision-study.md`](docs/p
 | `medium` | yes | 92 of 98 (94%) | 87% to 97% | 6 |
 | `low` | no (`--min-confidence low`) | 9 of 20 (45%) | 26% to 66% | 4 |
 
-What the false positives were: subscripts of **dicts of DataFrames** (`data['a'].fillna(0, inplace=True)` is fine when `data` is a dict), NumPy arrays that look like pandas, conditions that already handle the string dtype, `scipy.signal.resample(axis=)`, a list of frames indexed by position. Most are fixed in v0.2.0; the ones that need type inference (a dict returned by a function, an attribute holding a dict of frames) are not and stay `medium`. 36% of all findings were inside vendored copies of pandas itself; those directories are now skipped.
+What the false positives were: subscripts of **dicts of DataFrames** (`data['a'].fillna(0, inplace=True)` is fine when `data` is a dict), NumPy arrays that look like pandas, conditions that already handle the string dtype, `scipy.signal.resample(axis=)`, a list of frames indexed by position. Most are fixed in v0.3.0; the ones that need type inference (a dict returned by a function, an attribute holding a dict of frames) are not and stay `medium`. 36% of all findings were inside vendored copies of pandas itself; those directories are now skipped.
 
 Not claimed: this is a convenience sample labelled by one person, **recall was not measured**, and a "true" finding means the pattern behaves as described on pandas 3, not that the project is broken (many hits are old notebooks pinned to old pandas).
 
@@ -196,7 +221,7 @@ I found no other static scanner dedicated to pandas 3 removed APIs and silent be
 * Aliasing is not followed: `s = df["a"]; s.iloc[0] = 1` (which no longer updates `df`) is not reported, and neither is `astype(str)` assigned to a variable and compared with `"nan"` later. Only the written patterns above are matched.
 * Data-dependent changes (`astype(str)` on NaN, `groupby(observed=)` defaults, integer-key `Series[...]`, `apply` passing group columns, `pct_change()` default fill) are not detected unless the code spells the dependency out.
 * Rules hold for pandas 2.3.3 vs 3.0.0 and 3.0.6 on CPython 3.13/Linux only. Behaviours that were deprecated but still work on 3.0 are `note`s, and may be errors in pandas 4.
-* The [precision study](docs/precision-study.md) is a convenience sample labelled by one person; the final v0.2.0 scanner was not re-sampled after its last two fixes, `cow-option` and `include-groups` had too few findings to say anything, and recall is unmeasured.
+* The [precision study](docs/precision-study.md) is a convenience sample labelled by one person; the final v0.3.0 scanner was not re-sampled after its last two fixes, `cow-option` and `include-groups` had too few findings to say anything, and recall is unmeasured.
 
 ## Roadmap
 

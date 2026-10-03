@@ -31,6 +31,7 @@ NEW_ALIAS = {"H": "h", "BH": "bh", "CBH": "cbh", "T": "min", "L": "ms", "U": "us
              "BM": "BME", "BQ": "BQE", "BA": "BYE", "BY": "BYE", "SM": "SME", "CBM": "CBME", "AS": "YS", "BAS": "BYS"}
 ALIAS_RE = re.compile(r"^(\d*)(" + "|".join(sorted(NEW_ALIAS, key=len, reverse=True)) + r")(-[A-Z]{3})?$")
 PERIOD_BAD = {"H", "T", "L", "U", "N", "S", "A", "BA"}  # for Period/period_range 'M', 'Q', 'Y' are still valid
+SAFE_ALIASES = {"H", "BH", "CBH", "T", "L", "U", "N", "S"}  # same meaning for a DatetimeIndex and a PeriodIndex, so --fix may rewrite them on an untyped receiver
 PERIOD_FAMILY = {"M", "Q", "Y", "A"}  # on resample/asfreq these are also valid when the index is a PeriodIndex
 
 
@@ -114,10 +115,13 @@ def const_num(n):
 
 
 class Hit:
-    __slots__ = ("rule", "severity", "confidence", "line", "col", "message")
+    """`ops` (optional) is the mechanical rewrite for --fix: a list of (kind, node, ..., min_confidence) tuples, resolved to text edits by fix.py.
+    `why` explains why a finding that looks fixable is not (it is shown by --fix / --diff)."""
+    __slots__ = ("rule", "severity", "confidence", "line", "col", "message", "ops", "why")
 
-    def __init__(self, rule, severity, confidence, line, col, message):
+    def __init__(self, rule, severity, confidence, line, col, message, ops=None, why=None):
         self.rule, self.severity, self.confidence, self.line, self.col, self.message = rule, severity, confidence, line, col, message
+        self.ops, self.why = ops, why
 
 
 class State:
@@ -353,13 +357,20 @@ class Analyzer:
         return "unknown"
 
     # ---------------------------------------------------------------- reporting
-    def add(self, rule, node, message, confidence, severity=None):
+    def add(self, rule, node, message, confidence, severity=None, ops=None, why=None):
         from .rules import RULES
         key = (rule, node.lineno, node.col_offset)
         if key in self._seen:
+            # a second removed keyword on the same call is one finding; its rewrite is added to the first
+            prev = next((h for h in self.hits if (h.rule, h.line, h.col) == (rule, node.lineno, node.col_offset + 1)), None)
+            if prev is not None and (ops or why):
+                prev.ops = (prev.ops or []) + (ops or []) if not (why or prev.why) else prev.ops
+                prev.why = prev.why or why
+                if why:
+                    prev.ops = None
             return
         self._seen.add(key)
-        self.hits.append(Hit(rule, severity or RULES[rule].severity, confidence, node.lineno, node.col_offset + 1, message))
+        self.hits.append(Hit(rule, severity or RULES[rule].severity, confidence, node.lineno, node.col_offset + 1, message, ops, why))
 
     # ---------------------------------------------------------------- driver
     def run(self, tree):
@@ -649,7 +660,10 @@ class Analyzer:
                     s, new, a = r
                     if a in PERIOD_FAMILY and name in ("resample", "asfreq") and q is None:
                         conf = "medium"   # valid when the index is a PeriodIndex
-                    self.add("removed-offset-alias", node, f"frequency alias '{s}' was removed in pandas 3 (ValueError); use '{new}'", conf)
+                    ops, why = [("const", node, new, "medium" if a in SAFE_ALIASES else "high")], None
+                    if a in PERIOD_FAMILY and name in ("resample", "asfreq") and q is None:
+                        why = f"'{s}' is valid when the index is a PeriodIndex; not rewritten without knowing it is a DatetimeIndex"
+                    self.add("removed-offset-alias", node, f"frequency alias '{s}' was removed in pandas 3 (ValueError); use '{new}'", conf, ops=ops, why=why)
 
     def timedelta_units(self, n, q):
         if q not in ("pandas.Timedelta", "pandas.to_timedelta"):
@@ -657,9 +671,10 @@ class Analyzer:
         node = call_kw(n, "unit") or (n.args[1] if len(n.args) > 1 else None)
         if node is not None and is_const(node):
             if node.value in ("T", "L", "U", "N"):
-                self.add("removed-timedelta-unit", node, f"Timedelta unit '{node.value}' was removed in pandas 3 (ValueError); use '{ {'T': 'min', 'L': 'ms', 'U': 'us', 'N': 'ns'}[node.value] }'", "high")
+                new = {'T': 'min', 'L': 'ms', 'U': 'us', 'N': 'ns'}[node.value]
+                self.add("removed-timedelta-unit", node, f"Timedelta unit '{node.value}' was removed in pandas 3 (ValueError); use '{new}'", "high", ops=[("const", node, new, "high")])
             elif node.value == "H":
-                self.add("removed-timedelta-unit", node, "Timedelta unit 'H' is deprecated in pandas 3 (still works, warns); use 'h'", "high", severity="note")
+                self.add("removed-timedelta-unit", node, "Timedelta unit 'H' is deprecated in pandas 3 (still works, warns); use 'h'", "high", severity="note", ops=[("const", node, "h", "high")])
 
     def removed_things(self, n, q, name, recv, method, ev, hi):
         if q in REMOVED_FUNC:
@@ -667,12 +682,13 @@ class Analyzer:
         if q in REMOVED_KW:
             for k, adv in REMOVED_KW[q].items():
                 if call_kw(n, k) is not None:
-                    self.add("removed-keyword", n, f"{q.split('.')[-1]}({k}=...) was removed in pandas 3: {adv}", "high")
+                    ops, why = self.kw_fix(n, k, q)
+                    self.add("removed-keyword", n, f"{q.split('.')[-1]}({k}=...) was removed in pandas 3: {adv}", "high", ops=ops, why=why)
         if method and self.is_foreign_module_call(recv):
             return   # scipy.signal.resample(x, n, axis=-1), sklearn.utils.resample(...): a function of another library
         if method:
             if name in REMOVED_METHOD_ANY:
-                self.add("removed-method", n, f".{name}(): {REMOVED_METHOD_ANY[name]}", hi)
+                self.add("removed-method", n, f".{name}(): {REMOVED_METHOD_ANY[name]}", hi, ops=[("rename", n, "map", "medium")] if name == "applymap" and isinstance(n.func, ast.Attribute) else None)
             if name in REMOVED_METHOD_KNOWN and ev == "known" and not n.keywords:
                 self.add("removed-method", n, f".{name}(): {REMOVED_METHOD_KNOWN[name]}", "high")
             if name in ("first", "last") and n.args and is_const(n.args[0]) and re.match(r"^\d+[A-Za-z]+$", n.args[0].value):
@@ -683,7 +699,41 @@ class Analyzer:
                         conf = hi
                         if name in ("groupby", "rolling", "expanding", "ewm", "resample", "align", "apply") and ev == "unknown" and k in ("axis",):
                             conf = "medium"
-                        self.add("removed-keyword", n, f".{name}({k}=...) was removed in pandas 3: {adv}", conf)
+                        ops, why = self.fillna_fix(n, k) if (name == "fillna" and k == "method") else (None, None)
+                        self.add("removed-keyword", n, f".{name}({k}=...) was removed in pandas 3: {adv}", conf, ops=ops, why=why)
+
+    # ---------------------------------------------------------------- --fix: what can be rewritten mechanically (oracle: tests/oracle/run_fix_oracle.py)
+    @staticmethod
+    def kwnode(n, k):
+        return next((kw for kw in n.keywords if kw.arg == k), None)
+
+    def kw_fix(self, n, k, q):
+        """read_csv/read_table/to_datetime keywords: infer_datetime_format is dropped, delim_whitespace=True becomes sep=r"\\s+"."""
+        kw = self.kwnode(n, k)
+        if kw is None or any(x.arg is None for x in n.keywords) or any(isinstance(a, ast.Starred) for a in n.args):
+            return None, "call uses *args/**kwargs"
+        if k == "infer_datetime_format":
+            if is_const(kw.value, (bool,)):
+                return [("delkw", n, kw, "high")], None
+            return None, "infer_datetime_format is not a literal"
+        if k == "delim_whitespace":
+            if not (is_const(kw.value, (bool,)) and kw.value.value is True):
+                return None, "delim_whitespace is not the literal True"
+            if self.kwnode(n, "sep") or self.kwnode(n, "delimiter") or len(n.args) > 1:
+                return None, "sep/delimiter is also given"
+            return [("kwto", kw, 'sep=r"\\s+"', "high")], None
+        return None, None
+
+    def fillna_fix(self, n, k):
+        kw = self.kwnode(n, "method")
+        if kw is None or not isinstance(n.func, ast.Attribute):
+            return None, None
+        if not (is_const(kw.value) and kw.value.value in ("ffill", "pad", "bfill", "backfill")):
+            return None, "method is not a literal 'ffill'/'pad'/'bfill'/'backfill'"
+        if n.args or any(x.arg is None for x in n.keywords) or any(x.arg not in ("method", "limit", "axis", "inplace") for x in n.keywords):
+            return None, "fillna() also has a value, downcast or **kwargs: there is no one-line equivalent"
+        new = "ffill" if kw.value.value in ("ffill", "pad") else "bfill"
+        return [("rename", n, new, "medium"), ("delkw", n, kw, "medium")], None
 
     def errors_ignore(self, n, q, name):
         targets = {"pandas.to_datetime", "pandas.to_numeric", "pandas.to_timedelta"}
@@ -763,9 +813,12 @@ class Analyzer:
     def copy_kw(self, n, q, name, method, ev):
         if call_kw(n, "copy") is None:
             return
+        kw = self.kwnode(n, "copy")
+        ops = [("delkw", n, kw, "high")] if kw is not None and is_const(kw.value, (bool,)) and not any(x.arg is None for x in n.keywords) else None
+        why = None if ops else "copy is not a literal True/False"
         if q in COPY_FUNCS:
-            self.add("copy-keyword", n, f"{q.split('.')[-1]}(copy=...) is deprecated in pandas 3 and has no effect", "high")
+            self.add("copy-keyword", n, f"{q.split('.')[-1]}(copy=...) is deprecated in pandas 3 and has no effect", "high", ops=ops, why=why)
         elif method and name in COPY_METHODS:
-            self.add("copy-keyword", n, f".{name}(copy=...) is deprecated in pandas 3 and has no effect", "high" if ev == "known" else "medium")
+            self.add("copy-keyword", n, f".{name}(copy=...) is deprecated in pandas 3 and has no effect", "high" if ev == "known" else "medium", ops=ops, why=why)
         elif method and name == "astype" and ev == "known":
-            self.add("copy-keyword", n, ".astype(copy=...) is deprecated in pandas 3 and has no effect", "high")
+            self.add("copy-keyword", n, ".astype(copy=...) is deprecated in pandas 3 and has no effect", "high", ops=ops, why=why)
