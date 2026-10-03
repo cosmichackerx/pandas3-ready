@@ -1,0 +1,7 @@
+- id: pandas3-ready
+  name: pandas3-ready (pandas 3.0 readiness)
+  description: Report code that breaks or silently changes on pandas 3.0 in Python files and notebooks.
+  entry: pandas3-ready
+  language: python
+  files: '\.(py|ipynb)$'
+  pass_filenames: false

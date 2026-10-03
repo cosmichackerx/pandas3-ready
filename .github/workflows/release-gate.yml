@@ -1,0 +1,26 @@
+# Pre-release claims gate: the README, the package version and the tag being released must agree.
+# Run it by hand BEFORE tagging (Actions > Release gate > Run workflow, tag = v1.2.3), and it runs again on the tag.
+# The steps live in cosmichackerx/claims-check (reusable workflow); this file only says when to run and what to set up.
+name: Release gate
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag you are about to create, for example v1.2.3"
+        required: true
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: claims-check against the tag
+    uses: cosmichackerx/claims-check/.github/workflows/reusable-release-gate.yml@v0.3.0
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      python-version: "3.13"
+      setup: python -m pip install pytest
